@@ -9,7 +9,7 @@
       x = data,
       D = document,
       a = D.createElement("a"),
-      z = function(a) {
+      z = function (a) {
         return String(a);
       },
       B = self.Blob || self.MozBlob || self.WebKitBlob || z,
@@ -67,11 +67,11 @@
         a.setAttribute("download", fn);
         a.innerHTML = "downloading...";
         D.body.appendChild(a);
-        setTimeout(function() {
+        setTimeout(function () {
           a.click();
           D.body.removeChild(a);
           if (winMode === true) {
-            setTimeout(function() {
+            setTimeout(function () {
               self.URL.revokeObjectURL(a.href);
             }, 250);
           }
@@ -88,7 +88,7 @@
       }
 
       f.src = url;
-      setTimeout(function() {
+      setTimeout(function () {
         D.body.removeChild(f);
       }, 333);
     } //end saver
@@ -113,7 +113,7 @@
 
       // Blob but not URL:
       fr = new FileReader();
-      fr.onload = function(e) {
+      fr.onload = function (e) {
         saver(this.result);
       };
       fr.readAsDataURL(blob);
@@ -150,6 +150,7 @@
   const endData = {
     username: "",
     userProfileLink: "",
+    userSteamID: "",
     matches: []
   };
 
@@ -157,6 +158,9 @@
     continueToken: contToken,
     sessionID: sessionID
   };
+
+  //and make cache for steam ID
+  let cache = new Map();
 
   function parsePlayer(_, player) {
     function getMVPs(data) {
@@ -228,13 +232,15 @@
       replayLink: hasViewers
         ? _getLink($(matchData[5]))
         : _getLink($(matchData[4])),
-      score: {
-        team1: scores[0],
-        team2: scores[1]
-      },
-      players: {
-        team1: team1Players.map(parsePlayer).get(),
-        team2: team2Players.map(parsePlayer).get()
+      teams: {
+        team1: {
+          score: scores[0],
+          players: team1Players.map(parsePlayer).get(),
+        },
+        team2: {
+          score: scores[1],
+          players: team2Players.map(parsePlayer).get(),
+        },
       }
     };
 
@@ -243,6 +249,7 @@
 
   //Remove the first 1 since its just heading
   function parseInitial() {
+    showAlertDialog("Data", "Scraping Data, please be patient.", "OK");
     const first8 = $("table.generic_kv_table.csgo_scoreboard_root > tbody > tr")
       .slice(1)
       .map(parseMatch)
@@ -258,17 +265,19 @@
     try {
       const url = `${location.protocol}//${location.host}${
         location.pathname
-      }?ajax=1&tab=matchhistorycompetitive&continue_token=${token}&sessionid=${
+        }?ajax=1&tab=matchhistorycompetitive&continue_token=${token}&sessionid=${
         requestData.sessionID
-      }`;
+        }`;
       const res = await (await fetch(url, { credentials: "include" })).json();
       // console.log(res);
       endData.matches = endData.matches.concat(_parseTable(res.html));
+      // console.log(res.continue_token);
       if (res.continue_token && res.html && res.success) {
         // console.log(res.continue_token);
+        showAlertDialog("Data", `Scraping Data, please be patient. (${res.continue_token})`, "OK");
         getMoreData(res.continue_token);
       } else {
-        return terminate();
+        return proccessData();
       }
     } catch (error) {
       console.error(error);
@@ -281,16 +290,59 @@
     getMoreData(requestData.continueToken);
   }
 
+  // to simplify data analysis, some processing needs to be done
+  // most notably, converting the profile link to steam ids
+  async function proccessData() {
+    showAlertDialog("Data", "Proccessing Data, please be patient.", "OK");
+    // cause its gonna be a pain
+    //get user steam ID
+    endData.userSteamID = await getSteamID(endData.userProfileLink);
+    cache.set(endData.steamProfileLink, endData.userSteamID);
+    const z = endData.matches.map(async (match) => {
+      const winningTeam = getWinningTeam(match.teams);
+      if (winningTeam.players) {
+        match.result = winningTeam.players.filter((a) => a.steamProfileLink === endData.userProfileLink).length > 0 ? "win" : "loss";
+      }
+      else {
+        match.result = "draw";
+      }
+      match.teams.team1.players = await Promise.all(match.teams.team1.players.map(proccessPlayer));
+      match.teams.team2.players = await Promise.all(match.teams.team2.players.map(proccessPlayer));
+      return match;
+    });
+    endData.matches = await Promise.all(z);
+    terminate();
+  }
+
+  function getWinningTeam(teams) {
+    if (teams.team1.score > teams.team2.score) return teams.team1;
+    if (teams.team2.score > teams.team1.score) return teams.team2;
+    return "draw";
+  }
+
+  async function getSteamID(link) {
+    const z = link.split("/");
+    const id = z.includes("profiles") ? z[z.length - 1] : (await (await fetch(`https://api.steampowered.com/ISteamUser/ResolveVanityURL/v0001/?key=47F320969C176F6D60013C76B8D23ED7&vanityurl=${z[z.length - 1]}`)).json()).response.steamid;
+    cache.set(link, id);
+    return id;
+  }
+
+  async function proccessPlayer(player) {
+    const isInCache = cache.get(player.steamProfileLink);
+    player.steamID = isInCache ? isInCache : (await getSteamID(player.steamProfileLink));
+    return player;
+  }
+
   function terminate() {
     console.log("Data collection done!");
     console.log("||scraped data||");
     console.log(endData.matches);
     download(
       JSON.stringify(endData, null, "\t"),
-      `CSGO${location.pathname.split("/")[2]}.json`,
+      `CS${location.pathname.split("/")[2]}.json`,
       "application/json"
     );
-    showAlertDialog("Data", "Data automatically scraped and downloaded!", "OK");
+    showAlertDialog("Data", "Data downloaded!", "OK");
   }
 
   getData();
