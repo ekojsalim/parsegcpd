@@ -224,6 +224,7 @@
       .map(Number);
 
     const matchObject = {
+      id: Math.random().toString(36).substr(2, 9),
       map,
       time,
       waitTime: waitTimeRaw.split(" ")[2],
@@ -301,10 +302,10 @@
     const z = endData.matches.map(async (match) => {
       const winningTeam = getWinningTeam(match.teams);
       if (winningTeam.players) {
-        match.result = winningTeam.players.filter((a) => a.steamProfileLink === endData.userProfileLink).length > 0 ? "win" : "loss";
+        match.result = winningTeam.players.filter((a) => a.steamProfileLink === endData.userProfileLink).length > 0 ? "Win" : "Loss";
       }
       else {
-        match.result = "draw";
+        match.result = "Draw";
       }
       match.teams.team1.players = await Promise.all(match.teams.team1.players.map(proccessPlayer));
       match.teams.team2.players = await Promise.all(match.teams.team2.players.map(proccessPlayer));
